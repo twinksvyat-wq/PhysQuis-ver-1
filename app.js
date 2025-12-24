@@ -6,12 +6,15 @@ class PhysicsQuiz {
         this.questionIndex = 0;
         this.lives = 3;
         this.streak = 0;
+        this.maxStreak = 0;
         this.totalCorrect = 0;
         this.totalQuestions = 0;
         this.answered = false;
         this.isCorrect = false;
         this.touchStartX = 0;
         this.touchEndX = 0;
+        this.nickname = localStorage.getItem('nickname') || '';
+        this.leaderboardKey = 'physics_leaderboard';
 
         this.applyTheme(this.currentTheme);
         this.showMenu();
@@ -51,12 +54,35 @@ class PhysicsQuiz {
                 <div class="start-screen">
                     <div class="menu-title">Физика</div>
                     <div class="menu-subtitle">Освой формулы</div>
-                    <button class="menu-btn" id="startBtn" style="margin-top: 20px;">Начать</button>
+                    <div class="input-group" style="margin-top: 8px;">
+                        <label class="input-label">Никнейм:</label>
+                        <input
+                            type="text"
+                            class="formula-input"
+                            id="nicknameInput"
+                            placeholder="введи свой ник"
+                        />
+                    </div>
+                    <div class="button-group" style="margin-top: 16px;">
+                        <button class="menu-btn" id="startBtn">Начать</button>
+                        <button class="menu-btn" id="leaderboardBtn">Лидерборд</button>
+                    </div>
                 </div>
             </div>
         `;
 
         const themeBtn = document.getElementById('themeSelect');
+        const nicknameInput = document.getElementById('nicknameInput');
+        const startBtn = document.getElementById('startBtn');
+        const leaderboardBtn = document.getElementById('leaderboardBtn');
+
+        nicknameInput.value = this.nickname;
+        this.updateStartButtonState(startBtn, nicknameInput.value);
+
+        nicknameInput.addEventListener('input', e => {
+            this.updateStartButtonState(startBtn, e.target.value);
+        });
+
         themeBtn.addEventListener('click', () => {
             const themes = ['light', 'dark'];
             const currentIndex = themes.indexOf(this.currentTheme);
@@ -65,8 +91,16 @@ class PhysicsQuiz {
             this.showMenu();
         });
 
-        document.getElementById('startBtn').addEventListener('click', () => {
+        startBtn.addEventListener('click', () => {
+            const value = nicknameInput.value.trim();
+            if (!value) return;
+            this.nickname = value;
+            localStorage.setItem('nickname', value);
             this.showTopicMenu();
+        });
+
+        leaderboardBtn.addEventListener('click', () => {
+            this.showLeaderboard();
         });
     }
 
@@ -123,11 +157,18 @@ class PhysicsQuiz {
         });
     }
 
+    updateStartButtonState(button, value) {
+        if (!button) return;
+        const trimmed = (value || '').trim();
+        button.disabled = !trimmed;
+    }
+
     startQuiz(topic) {
         this.currentTopic = topic;
         this.questionIndex = 0;
         this.lives = 3;
         this.streak = 0;
+        this.maxStreak = 0;
         this.totalCorrect = 0;
         this.totalQuestions = 0;
         this.nextQuestion();
@@ -183,12 +224,12 @@ class PhysicsQuiz {
                                 </div>
                                 <div class="streak-counter">Серия: ${this.streak}</div>
                                 <div class="input-group">
-                                    <label class="input-label">Введи формулу:</label>
+                                    <label class="input-label">Введи формулу (без точек умножения):</label>
                                     <input 
                                         type="text" 
                                         class="formula-input" 
                                         id="formulaInput" 
-                                        placeholder="например, v = a·t"
+                                        placeholder="например, v = at или E = mv^2/2"
                                         ${this.answered ? 'disabled' : ''}
                                     />
                                 </div>
@@ -276,8 +317,8 @@ class PhysicsQuiz {
             .toLowerCase()
             .trim()
             .replace(/\s+/g, '')
-            .replace(/×/g, '*')
-            .replace(/·/g, '*')
+            .replace(/[×·]/g, '')
+            .replace(/\*/g, '')
             .replace(/÷/g, '/')
             .replace(/π/g, 'pi')
             .replace(/²/g, '^2')
@@ -300,6 +341,9 @@ class PhysicsQuiz {
         if (this.isCorrect) {
             this.totalCorrect++;
             this.streak++;
+            if (this.streak > this.maxStreak) {
+                this.maxStreak = this.streak;
+            }
         } else {
             this.lives--;
             this.streak = 0;
@@ -351,11 +395,95 @@ class PhysicsQuiz {
         }
     }
 
+    getLeaderboard() {
+        const raw = localStorage.getItem(this.leaderboardKey);
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    saveLeaderboard(list) {
+        localStorage.setItem(this.leaderboardKey, JSON.stringify(list));
+    }
+
+    updateLeaderboard(accuracy) {
+        if (!this.nickname) return;
+        const list = this.getLeaderboard();
+        const existing = list.find(item => item.name === this.nickname);
+        if (existing) {
+            if (this.maxStreak > existing.bestStreak) existing.bestStreak = this.maxStreak;
+            if (accuracy > existing.bestAccuracy) existing.bestAccuracy = accuracy;
+            existing.games += 1;
+        } else {
+            list.push({
+                name: this.nickname,
+                bestStreak: this.maxStreak,
+                bestAccuracy: accuracy,
+                games: 1
+            });
+        }
+        list.sort((a, b) => {
+            if (b.bestStreak !== a.bestStreak) return b.bestStreak - a.bestStreak;
+            if (b.bestAccuracy !== a.bestAccuracy) return b.bestAccuracy - a.bestAccuracy;
+            return a.name.localeCompare(b.name);
+        });
+        this.saveLeaderboard(list.slice(0, 20));
+    }
+
+    showLeaderboard() {
+        const app = document.getElementById('app');
+        const list = this.getLeaderboard();
+
+        app.innerHTML = `
+            <div class="header">
+                <h1>Физика</h1>
+                <div class="header-right">
+                    <button class="theme-selector" id="themeSelect" title="Переключить тему">
+                        ${this.currentTheme === 'light' ? 'L' : 'D'}
+                    </button>
+                </div>
+            </div>
+            <div class="screen">
+                <div class="game-over-container">
+                    <div class="game-over-title">Лидерборд</div>
+                    <div class="game-over-stats">
+                        ${list.length === 0 ? '<div class="stat-row">Пока нет результатов</div>' : list.map((item, index) => `
+                            <div class="stat-row">
+                                <strong>${index + 1}. ${item.name}</strong><br>
+                                Лучший стрик: ${item.bestStreak} · Точность: ${item.bestAccuracy}% · Игр: ${item.games}
+                            </div>
+                        `).join('')}
+                    </div>
+                    <button class="btn btn-submit restart-btn" id="backToMenuBtn">В меню</button>
+                </div>
+            </div>
+        `;
+
+        const themeBtn = document.getElementById('themeSelect');
+        themeBtn.addEventListener('click', () => {
+            const themes = ['light', 'dark'];
+            const currentIndex = themes.indexOf(this.currentTheme);
+            const nextTheme = themes[(currentIndex + 1) % themes.length];
+            this.applyTheme(nextTheme);
+            this.showLeaderboard();
+        });
+
+        document.getElementById('backToMenuBtn').addEventListener('click', () => {
+            this.showMenu();
+        });
+    }
+
     showGameOver() {
         const app = document.getElementById('app');
         const accuracy = this.totalQuestions > 0 
             ? Math.round((this.totalCorrect / this.totalQuestions) * 100) 
             : 0;
+
+        this.updateLeaderboard(accuracy);
 
         app.innerHTML = `
             <div class="header">
@@ -377,7 +505,7 @@ class PhysicsQuiz {
                             <strong>Точность:</strong> ${accuracy}%
                         </div>
                         <div class="stat-row">
-                            <strong>Макс. серия:</strong> ${this.streak}
+                            <strong>Макс. серия:</strong> ${this.maxStreak}
                         </div>
                     </div>
                     <button class="btn btn-submit restart-btn" id="restartBtn">В меню</button>
